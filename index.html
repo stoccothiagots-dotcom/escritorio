@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#e9edf0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Escritório">
+<title>Quadro do Escritório</title>
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: um "quadro de força" — painel geral no topo, uma linha por máquina com LED de estado */
+:root {
+  --bg: #e9edf0;
+  --panel: #f8fafb;
+  --line: #d3dae0;
+  --ink: #17202a;
+  --muted: #5d6b78;
+  --off: #a9b4be;
+  --ok: #1f9d55;
+  --warn: #c47a00;
+  --danger: #c2341f;
+  --danger-ink: #ffffff;
+  --focus: #1d6fd1;
+  --scrim: rgba(23, 32, 42, .45);
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161c22; --panel: #1f272f; --line: #313c47; --ink: #e8edf1; --muted: #93a1ae;
+    --off: #4c5967; --ok: #3ccf7a; --warn: #f0a531; --danger: #e5513a; --danger-ink: #ffffff;
+    --focus: #6aa8f0; --scrim: rgba(0, 0, 0, .6); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161c22; --panel: #1f272f; --line: #313c47; --ink: #e8edf1; --muted: #93a1ae;
+  --off: #4c5967; --ok: #3ccf7a; --warn: #f0a531; --danger: #e5513a; --danger-ink: #ffffff;
+  --focus: #6aa8f0; --scrim: rgba(0, 0, 0, .6); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 400 16px/1.45 var(--body);
+  padding: env(safe-area-inset-top, 0px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+  -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+.wrap { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; padding-block: 18px; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.label { font: 600 12px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+/* Topo */
+header { display: flex; align-items: center; gap: 12px; }
+header .title { flex: 1; min-width: 0; }
+h1 { font: 700 30px/1 var(--display); letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.summary { margin-top: 4px; color: var(--muted); font-size: 14px; }
+.icon-btn {
+  width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--panel); display: grid; place-items: center; flex: none;
+}
+.icon-btn svg { width: 20px; height: 20px; }
+.icon-btn.spin svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Painel geral */
+.master { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.act {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 74px; padding: 10px 6px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--bg); font: 600 15px/1.1 var(--display); letter-spacing: .06em; text-transform: uppercase;
+  transition: transform .08s ease;
+}
+.act:active { transform: scale(.97); }
+.act svg { width: 24px; height: 24px; }
+.act.off { background: var(--danger); border-color: var(--danger); color: var(--danger-ink); }
+.act.restart svg { color: var(--warn); }
+.act.cancel svg { color: var(--muted); }
+
+/* Lista de maquinas */
+.list { display: flex; flex-direction: column; gap: 10px; }
+.list-head { display: flex; justify-content: space-between; align-items: baseline; }
+#pcs { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+#pcs:has(.empty) { background: none; border: 0; }
+.pc-row {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 15px 14px; text-align: left;
+  border: 0; border-top: 1px solid var(--line); background: transparent;
+}
+.pc-row:first-child { border-top: 0; }
+.pc-row:active { background: var(--bg); }
+.pc-row .chev { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--off); flex: none; }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
+.dot.off { background: var(--danger); box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 18%, transparent); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 25%, transparent); animation: pulse 1s ease-in-out infinite alternate; }
+@keyframes pulse { to { opacity: .45; } }
+.pc-name { font: 700 21px/1 var(--display); letter-spacing: .04em; overflow-wrap: anywhere; flex: 1; min-width: 0; }
+.pc-state { font-size: 14px; color: var(--muted); text-align: right; }
+.pc-state b { font-weight: 600; color: var(--ink); }
+.mono { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.sheet-head { display: flex; align-items: center; gap: 12px; }
+.sheet-head h2 { flex: 1; min-width: 0; }
+.sheet .actions .act { min-height: 84px; }
+.sheet .actions .act:not(.off) { background: var(--panel); }
+.empty { background: var(--panel); border: 1px dashed var(--line); border-radius: 16px; padding: 22px 16px; color: var(--muted); text-align: center; }
+
+/* Atividade */
+.log { display: flex; flex-direction: column; gap: 6px; }
+.log ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.log li { display: grid; grid-template-columns: 52px 1fr; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.log li:first-child { border-top: 0; }
+.log time { color: var(--muted); }
+.log .bad { color: var(--danger); }
+
+/* Login */
+.login { min-height: 80vh; display: flex; flex-direction: column; justify-content: center; gap: 22px; }
+.badge { width: 64px; height: 64px; border-radius: 18px; background: var(--danger); display: grid; place-items: center; color: var(--danger-ink); }
+.badge svg { width: 32px; height: 32px; }
+.login h1 { font-size: 40px; }
+.login p { margin: 0; color: var(--muted); max-width: 34ch; }
+
+/* Campo de senha + botoes */
+.field { display: flex; flex-direction: column; gap: 8px; }
+.pw { display: flex; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+.pw:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.pw input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ink); font: 500 18px var(--mono); padding: 14px; outline: none; }
+.pw button { border: 0; background: transparent; padding: 0 14px; color: var(--muted); font-size: 14px; font-weight: 600; }
+.err { color: var(--danger); font-size: 14px; min-height: 1.2em; }
+.primary {
+  border: 0; border-radius: 14px; padding: 16px; font: 700 19px/1 var(--display); letter-spacing: .08em; text-transform: uppercase;
+  background: var(--ink); color: var(--bg);
+}
+.primary.off { background: var(--danger); color: var(--danger-ink); }
+.primary.restart { background: var(--warn); color: #1b1203; }
+.primary:disabled { opacity: .55; }
+.ghost { border: 0; background: transparent; color: var(--muted); padding: 12px; font-weight: 600; }
+
+/* Confirmacao */
+.scrim { position: fixed; inset: 0; background: var(--scrim); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.sheet {
+  width: 100%; max-width: 520px; background: var(--bg); border-radius: 22px 22px 0 0;
+  padding: 22px 16px calc(env(safe-area-inset-bottom, 0px) + 16px); display: flex; flex-direction: column; gap: 16px;
+  animation: up .18s ease-out;
+}
+@keyframes up { from { transform: translateY(30px); opacity: .6; } }
+.sheet h2 { font: 700 26px/1.05 var(--display); text-transform: uppercase; letter-spacing: .03em; margin: 0; text-wrap: balance; }
+.sheet p { margin: 0; color: var(--muted); }
+.shake { animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+.toast {
+  position: fixed; left: 16px; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); margin: 0 auto; max-width: 488px;
+  background: var(--ink); color: var(--bg); border-radius: 14px; padding: 14px 16px; font-weight: 500; z-index: 20;
+}
+.foot { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-power" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-restart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></symbol>
+  <symbol id="i-cancel" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 0 1-13.7 5.6L4 15"/><path d="M4 20v-5h5"/></symbol>
+</svg>
+
+<!-- Tela de entrada -->
+<main id="login" class="wrap login" hidden>
+  <div class="badge"><svg><use href="#i-power"/></svg></div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <h1>Quadro do Escritório</h1>
+    <p>Desligue, reinicie ou cancele o desligamento dos PCs do escritório de qualquer lugar.</p>
+  </div>
+  <form id="login-form" class="field" autocomplete="off">
+    <label class="label" for="login-pw">Senha do app</label>
+    <div class="pw"><input id="login-pw" type="password" autocomplete="current-password" required><button type="button" data-toggle="login-pw">Mostrar</button></div>
+    <div class="err" id="login-err"></div>
+    <button class="primary" type="submit">Entrar</button>
+  </form>
+</main>
+
+<!-- Painel -->
+<main id="app" class="wrap" hidden>
+  <header>
+    <div class="title">
+      <h1>Escritório</h1>
+      <div class="summary" id="summary">Verificando máquinas…</div>
+    </div>
+    <button class="icon-btn" id="refresh" aria-label="Atualizar"><svg><use href="#i-refresh"/></svg></button>
+  </header>
+
+  <section class="master" aria-labelledby="master-title">
+    <div class="label" id="master-title">Todas as máquinas</div>
+    <div class="actions">
+      <button class="act off" data-acao="desligar" data-alvo="todos"><svg><use href="#i-power"/></svg>Desligar</button>
+      <button class="act restart" data-acao="reiniciar" data-alvo="todos"><svg><use href="#i-restart"/></svg>Reiniciar</button>
+      <button class="act cancel" data-acao="cancelar" data-alvo="todos"><svg><use href="#i-cancel"/></svg>Cancelar</button>
+    </div>
+  </section>
+
+  <section class="list" aria-labelledby="list-title">
+    <div class="list-head"><div class="label" id="list-title">Máquinas</div><div class="label" id="count"></div></div>
+    <div id="pcs"></div>
+  </section>
+
+  <section class="log" aria-labelledby="log-title">
+    <div class="label" id="log-title">Atividade recente</div>
+    <ol id="log"></ol>
+  </section>
+
+  <div class="foot"><span id="conn">Conectando…</span><button class="ghost" id="logout">Sair deste aparelho</button></div>
+</main>
+
+<!-- Acoes de uma maquina -->
+<div class="scrim" id="menu" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+    <div class="sheet-head"><span class="dot" id="menu-dot"></span><h2 id="menu-title"></h2></div>
+    <p id="menu-state"></p>
+    <div class="actions">
+      <button class="act off" data-acao="desligar"><svg><use href="#i-power"/></svg>Desligar</button>
+      <button class="act restart" data-acao="reiniciar"><svg><use href="#i-restart"/></svg>Reiniciar</button>
+      <button class="act cancel" data-acao="cancelar"><svg><use href="#i-cancel"/></svg>Cancelar</button>
+    </div>
+    <button class="ghost" type="button" id="menu-close">Voltar</button>
+  </div>
+</div>
+
+<!-- Confirmacao com senha -->
+<div class="scrim" id="confirm" hidden>
+  <form class="sheet" id="confirm-form" autocomplete="off" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text"></p>
+    <div class="field">
+      <label class="label" for="confirm-pw">Senha do app</label>
+      <div class="pw"><input id="confirm-pw" type="password" autocomplete="current-password" required><button type="button" data-toggle="confirm-pw">Mostrar</button></div>
+      <div class="err" id="confirm-err"></div>
+    </div>
+    <button class="primary" id="confirm-go" type="submit"></button>
+    <button class="ghost" type="button" id="confirm-close">Voltar</button>
+  </form>
+</div>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+'use strict';
+const SERVIDOR = 'https://ntfy.sh';
+const CHAVE_LOCAL = 'quadro-escritorio';
+const ESPERA = 15000;  // tempo para os PCs responderem a um "status" (eles consultam a cada ~4s)
+
+/* ---------- SHA-256 / HMAC (mesma derivacao do DesligarRemoto.ps1) ---------- */
+const K = new Uint32Array([0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+function sha256(bytes) {
+  const len = bytes.length, total = ((len + 9 + 63) >> 6) << 6;
+  const m = new Uint8Array(total); m.set(bytes); m[len] = 0x80;
+  const dv = new DataView(m.buffer);
+  dv.setUint32(total - 4, (len * 8) >>> 0); dv.setUint32(total - 8, Math.floor(len / 0x20000000));
+  const h = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+  const w = new Uint32Array(64);
+  const r = (x, n) => (x >>> n) | (x << (32 - n));
+  for (let o = 0; o < total; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(o + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = r(w[i-15], 7) ^ r(w[i-15], 18) ^ (w[i-15] >>> 3);
+      const s1 = r(w[i-2], 17) ^ r(w[i-2], 19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (hh + (r(e, 6) ^ r(e, 11) ^ r(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) >>> 0;
+      const t2 = ((r(a, 2) ^ r(a, 13) ^ r(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) >>> 0;
+      hh = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  const out = new Uint8Array(32); const ov = new DataView(out.buffer);
+  h.forEach((v, i) => ov.setUint32(i * 4, v)); return out;
+}
+const utf8 = s => new TextEncoder().encode(s);
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+const sha256Hex = s => hex(sha256(utf8(s)));
+function hmacHex(chave, texto) {
+  let k = utf8(chave); if (k.length > 64) k = sha256(k);
+  const ip = new Uint8Array(64 + 0), op = new Uint8Array(64);
+  for (let i = 0; i < 64; i++) { ip[i] = (k[i] || 0) ^ 0x36; op[i] = (k[i] || 0) ^ 0x5c; }
+  const msg = utf8(texto), inner = new Uint8Array(64 + msg.length); inner.set(ip); inner.set(msg, 64);
+  const ih = sha256(inner), outer = new Uint8Array(96); outer.set(op); outer.set(ih, 64);
+  return hex(sha256(outer));
+}
+const derivarTopico = senha => 'escritorio-' + sha256Hex('desligar-remoto/topico/' + senha).slice(0, 32);
+const derivarChave = senha => sha256Hex('desligar-remoto/chave/' + senha);
+
+/* ---------- Estado ---------- */
+const $ = id => document.getElementById(id);
+let topico = null, fonte = null, ultimoPing = 0;
+const pcs = new Map();      // nome -> { ligadoDesde, visto, estado, prazo }
+const atividade = [];       // { quando, texto, ruim }
+const vistos = new Set();   // ids de mensagens ja processadas (o ntfy reenvia o historico ao reconectar)
+
+function ler(k, padrao) { try { const v = localStorage.getItem(CHAVE_LOCAL + k); return v == null ? padrao : JSON.parse(v); } catch { return padrao; } }
+function gravar(k, v) { try { localStorage.setItem(CHAVE_LOCAL + k, JSON.stringify(v)); } catch {} }
+function apagar(k) { try { localStorage.removeItem(CHAVE_LOCAL + k); } catch {} }
+
+/* ---------- Entrar ---------- */
+function mostrarLogin() { $('app').hidden = true; $('login').hidden = false; setTimeout(() => $('login-pw').focus(), 50); }
+$('login-form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const senha = $('login-pw').value;
+  if (!senha) return;
+  topico = derivarTopico(senha);
+  gravar('topico', topico);
+  $('login-pw').value = '';
+  iniciarPainel();
+});
+$('logout').addEventListener('click', () => {
+  apagar('topico'); apagar('pcs'); topico = null; pcs.clear(); atividade.length = 0; vistos.clear();
+  if (fonte) fonte.close(); mostrarLogin();
+});
+document.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('click', () => {
+  const inp = $(b.dataset.toggle); const ver = inp.type === 'password';
+  inp.type = ver ? 'text' : 'password'; b.textContent = ver ? 'Ocultar' : 'Mostrar'; inp.focus();
+}));
+
+/* ---------- Conexao com o ntfy ---------- */
+function iniciarPainel() {
+  $('login').hidden = true; $('app').hidden = false;
+  for (const nome of ler('pcs', [])) if (!pcs.has(nome)) pcs.set(nome, { estado: 'desconhecido', visto: 0 });
+  render(); conectar(); pingar();
+}
+function conectar() {
+  if (fonte) fonte.close();
+  fonte = new EventSource(`${SERVIDOR}/${topico}/sse?since=20m`);
+  fonte.onopen = () => { $('conn').textContent = 'Conectado'; };
+  fonte.onerror = () => { $('conn').textContent = 'Reconectando…'; };
+  fonte.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.event !== 'message' || vistos.has(msg.id)) return;
+    vistos.add(msg.id);
+    let r; try { r = JSON.parse(msg.message); } catch { return; }
+    if (r && r.pc) receber(r, msg.time * 1000);
+  };
+}
+async function enviar(texto) {
+  const resp = await fetch(`${SERVIDOR}/${topico}`, { method: 'POST', body: texto });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+}
+async function pingar() {
+  ultimoPing = Date.now();
+  $('refresh').classList.add('spin');
+  try { await enviar('status'); $('conn').textContent = 'Conectado'; }
+  catch { $('conn').textContent = 'Sem internet'; }
+  setTimeout(() => { $('refresh').classList.remove('spin'); render(); }, 6000);
+  setTimeout(render, ESPERA + 100);
+  render();
+}
+$('refresh').addEventListener('click', pingar);
+setInterval(() => { if (topico && !document.hidden) pingar(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && topico) { conectar(); pingar(); } });
+
+/* ---------- Respostas dos PCs ---------- */
+const NOMES_EVENTO = { online: 'ligou', status: 'respondeu', desligando: 'vai desligar', reiniciando: 'vai reiniciar', cancelado: 'cancelou o desligamento', recusado: 'recusou o comando' };
+function receber(r, quando) {
+  const pc = pcs.get(r.pc) || { estado: 'desconhecido', visto: 0 };
+  pcs.set(r.pc, pc);
+  gravar('pcs', [...pcs.keys()]);
+  pc.visto = Math.max(pc.visto, quando);
+  pc.ligadoDesde = r.ligadoDesde * 1000;
+  if (r.evento === 'desligando' || r.evento === 'reiniciando') { pc.estado = r.evento; pc.prazo = quando + (r.atraso || 60) * 1000; }
+  else if (r.evento === 'cancelado' || r.evento === 'online') { pc.estado = 'online'; pc.prazo = 0; }
+  else if (r.evento === 'status' && !(pc.prazo > Date.now())) { pc.estado = 'online'; }
+  if (r.evento !== 'status') {
+    atividade.unshift({ quando, texto: `${r.pc} ${NOMES_EVENTO[r.evento] || r.evento}${r.motivo ? ': ' + r.motivo : ''}`, ruim: r.evento === 'recusado' });
+    atividade.sort((a, b) => b.quando - a.quando); atividade.length = Math.min(atividade.length, 12);
+    if (Date.now() - quando < 15000) toast(`${r.pc} ${NOMES_EVENTO[r.evento] || r.evento}${r.motivo ? ': ' + r.motivo : ''}`);
+  }
+  render();
+}
+
+/* ---------- Tela ---------- */
+// dot: ok = verde (ligada), off = vermelho (desligada), warn = amarelo (vai desligar/reiniciar), '' = cinza (verificando)
+function situacao(pc) {
+  const agora = Date.now();
+  if (pc.prazo > agora) return { dot: 'warn', texto: `<b>${pc.estado === 'reiniciando' ? 'Reinicia' : 'Desliga'} em <span class="mono">${Math.ceil((pc.prazo - agora) / 1000)}s</span></b>` };
+  if (pc.prazo && pc.estado === 'desligando' && pc.visto < pc.prazo) return { dot: 'off', texto: 'Desligada' };
+  if (pc.prazo && pc.estado === 'reiniciando' && pc.visto < pc.prazo) return { dot: 'warn', texto: 'Reiniciando…' };
+  if (agora - pc.visto < 75000 && pc.estado === 'online') return { dot: 'ok', texto: `Ligada · <span class="mono">${duracao(agora - pc.ligadoDesde)}</span>` };
+  if (agora - ultimoPing < ESPERA) return { dot: '', texto: 'Verificando…' };
+  return { dot: 'off', texto: 'Desligada' };
+}
+function duracao(ms) {
+  const min = Math.max(0, Math.floor(ms / 60000)), d = Math.floor(min / 1440), h = Math.floor(min / 60) % 24, m = min % 60;
+  return d ? `${d}d ${h}h` : `${h}h${String(m).padStart(2, '0')}m`;
+}
+// So troca o HTML quando muda, para nao perder toques durante a atualizacao de 1s
+function trocar(id, html) { const el = $(id); if (el._html !== html) { el.innerHTML = html; el._html = html; } }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function render() {
+  const lista = [...pcs.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const estados = lista.map(([, pc]) => situacao(pc));
+  const ligadas = estados.filter(s => s.dot === 'ok' || s.dot === 'warn').length;
+  $('count').textContent = lista.length ? `${ligadas}/${lista.length} ligadas` : '';
+  $('summary').textContent = !lista.length ? (Date.now() - ultimoPing < ESPERA ? 'Verificando máquinas…' : 'Nenhuma máquina respondeu ainda')
+    : ligadas ? `${ligadas} de ${lista.length} ${lista.length === 1 ? 'máquina ligada' : 'máquinas ligadas'}` : 'Todas desligadas';
+  trocar('pcs', lista.length ? lista.map(([nome], i) => {
+    const s = estados[i];
+    return `<button class="pc-row" data-pc="${esc(nome)}"><span class="dot ${s.dot}"></span>
+      <span class="pc-name">${esc(nome)}</span><span class="pc-state">${s.texto}</span>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`;
+  }).join('') : `<div class="empty">${Date.now() - ultimoPing < ESPERA ? 'Procurando máquinas…' : 'Nenhuma máquina respondeu.<br>Confira se o instalador rodou nos PCs e se a senha está certa.'}</div>`);
+  trocar('log', atividade.length ? atividade.map(a =>
+    `<li><time class="mono">${new Date(a.quando).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time><span class="${a.ruim ? 'bad' : ''}">${esc(a.texto)}</span></li>`).join('')
+    : '<li><time class="mono">—</time><span>Nada nos últimos 20 minutos.</span></li>');
+  if (!$('menu').hidden && pcs.has(menuPc)) {
+    const s = situacao(pcs.get(menuPc));
+    $('menu-dot').className = 'dot ' + s.dot; $('menu-state').innerHTML = s.texto;
+  }
+}
+
+/* ---------- Toque numa maquina: mostra as acoes ---------- */
+let menuPc = null;
+$('pcs').addEventListener('click', ev => {
+  const row = ev.target.closest('.pc-row'); if (!row) return;
+  menuPc = row.dataset.pc;
+  $('menu-title').textContent = menuPc;
+  $('menu').querySelectorAll('.act').forEach(b => { b.dataset.alvo = menuPc; });
+  $('menu').hidden = false; render();
+});
+function fecharMenu() { $('menu').hidden = true; }
+$('menu-close').addEventListener('click', fecharMenu);
+$('menu').addEventListener('click', ev => { if (ev.target === $('menu')) fecharMenu(); });
+setInterval(() => { if (topico && !$('app').hidden) render(); }, 1000);
+
+/* ---------- Confirmacao com senha ---------- */
+const TEXTOS = {
+  desligar: { titulo: a => a === 'todos' ? 'Desligar todas as máquinas?' : `Desligar ${a}?`, texto: 'Desliga em 60 segundos. Dá para cancelar até lá.', botao: 'Desligar', cls: 'off' },
+  reiniciar: { titulo: a => a === 'todos' ? 'Reiniciar todas as máquinas?' : `Reiniciar ${a}?`, texto: 'Reinicia em 60 segundos. Dá para cancelar até lá.', botao: 'Reiniciar', cls: 'restart' },
+  cancelar: { titulo: a => a === 'todos' ? 'Cancelar em todas as máquinas?' : `Cancelar em ${a}?`, texto: 'Cancela um desligamento ou reinício que ainda não aconteceu.', botao: 'Cancelar desligamento', cls: '' },
+};
+let pedido = null;
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('.act'); if (!b) return;
+  pedido = { acao: b.dataset.acao, alvo: b.dataset.alvo };
+  fecharMenu();
+  const t = TEXTOS[pedido.acao];
+  $('confirm-title').textContent = t.titulo(pedido.alvo);
+  $('confirm-text').textContent = t.texto;
+  $('confirm-go').textContent = t.botao; $('confirm-go').className = 'primary ' + t.cls; $('confirm-go').disabled = false;
+  $('confirm-err').textContent = ''; $('confirm-pw').value = ''; $('confirm-pw').type = 'password';
+  $('confirm').hidden = false; setTimeout(() => $('confirm-pw').focus(), 50);
+});
+function fechar() { $('confirm').hidden = true; pedido = null; }
+$('confirm-close').addEventListener('click', fechar);
+$('confirm').addEventListener('click', ev => { if (ev.target === $('confirm')) fechar(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { fechar(); fecharMenu(); } });
+$('confirm-form').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const senha = $('confirm-pw').value;
+  if (derivarTopico(senha) !== topico) {
+    $('confirm-err').textContent = 'Senha incorreta.';
+    const s = $('confirm-form'); s.classList.remove('shake'); void s.offsetWidth; s.classList.add('shake');
+    return;
+  }
+  const { acao, alvo } = pedido, alvoMin = alvo.toLowerCase();
+  const ts = Math.floor(Date.now() / 1000);
+  const nonce = hex(crypto.getRandomValues(new Uint8Array(8)));
+  const assinatura = hmacHex(derivarChave(senha), `${acao}|${alvoMin}|${ts}|${nonce}`);
+  $('confirm-go').disabled = true;
+  try {
+    await enviar(`${acao} ${alvoMin} ${ts} ${nonce} ${assinatura}`);
+    fechar(); toast('Comando enviado. Aguardando resposta…');
+  } catch {
+    $('confirm-err').textContent = 'Não foi possível enviar. Confira a internet do celular.';
+    $('confirm-go').disabled = false;
+  }
+});
+
+let toastTimer;
+function toast(texto) {
+  $('toast').textContent = texto; $('toast').hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 4000);
+}
+
+/* ---------- Inicio ---------- */
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+topico = ler('topico', null);
+if (topico) iniciarPainel(); else mostrarLogin();
+</script>
+</body>
+</html>
