@@ -363,8 +363,15 @@ async function pingar() {
   render();
 }
 $('refresh').addEventListener('click', pingar);
-setInterval(() => { if (topico && !document.hidden) pingar(); }, 30000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && topico) { conectar(); pingar(); } });
+/* O relogio automatico FOI REMOVIDO.
+   Perguntar custa 5 mensagens (uma resposta por maquina) e a cota do ntfy.sh e
+   de 250 por dia para o IP do escritorio inteiro. A cada 30 segundos isso dava
+   720 mensagens por hora: a cota do dia acabava em 25 minutos, e dai nem o app
+   nem o CRM conseguiam mais falar com as maquinas.
+   Agora so pergunta no botao de atualizar. */
+/* Voltar para a aba reconecta o fluxo (de graca), mas NAO pergunta de novo:
+   alternar de aba algumas vezes gastava a cota sem ninguem pedir nada. */
+document.addEventListener('visibilitychange', () => { if (!document.hidden && topico) conectar(); });
 
 /* ---------- Respostas dos PCs ---------- */
 const NOMES_EVENTO = { online: 'ligou', status: 'respondeu', desligando: 'vai desligar', reiniciando: 'vai reiniciar', cancelado: 'cancelou o desligamento', recusado: 'recusou o comando' };
