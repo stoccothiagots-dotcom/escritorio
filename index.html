@@ -301,7 +301,7 @@ const derivarChave = senha => sha256Hex('desligar-remoto/chave/' + senha);
 
 /* ---------- Estado ---------- */
 const $ = id => document.getElementById(id);
-let topico = null, fonte = null, ultimoPing = 0;
+let topico = null, fonte = null, ultimoPing = 0, ultimoId = null;
 const pcs = new Map();      // nome -> { ligadoDesde, visto, estado, prazo }
 const atividade = [];       // { quando, texto, ruim }
 const vistos = new Set();   // ids de mensagens ja processadas (o ntfy reenvia o historico ao reconectar)
@@ -334,17 +334,24 @@ document.querySelectorAll('[data-toggle]').forEach(b => b.addEventListener('clic
 function iniciarPainel() {
   $('login').hidden = true; $('app').hidden = false;
   for (const nome of ler('pcs', [])) if (!pcs.has(nome)) pcs.set(nome, { estado: 'desconhecido', visto: 0 });
-  render(); conectar(); pingar();
+  // Abrir o app NAO pergunta as maquinas (05/11/2026). So o botao de atualizar
+  // pergunta: cada pergunta custa uma mensagem por maquina, e a cota do ntfy.sh
+  // e de 250 por dia para o escritorio inteiro. Abrir so liga a escuta, que e de
+  // graca, e mostra o que as maquinas disseram nas ultimas 12 horas -- inclusive
+  // o aviso de ligar/desligar e o "estou aqui" que cada uma manda a cada 4 h.
+  render(); conectar();
 }
 function conectar() {
   if (fonte) fonte.close();
-  fonte = new EventSource(`${SERVIDOR}/${topico}/sse?since=20m`);
+  // 12 horas na primeira vez (o maximo que o ntfy.sh guarda); ao reconectar,
+  // so o que chegou depois da ultima mensagem vista.
+  fonte = new EventSource(`${SERVIDOR}/${topico}/sse?since=${ultimoId || '12h'}`);
   fonte.onopen = () => { $('conn').textContent = 'Conectado'; };
   fonte.onerror = () => { $('conn').textContent = 'Reconectando…'; };
   fonte.onmessage = ev => {
     let msg; try { msg = JSON.parse(ev.data); } catch { return; }
     if (msg.event !== 'message' || vistos.has(msg.id)) return;
-    vistos.add(msg.id);
+    vistos.add(msg.id); ultimoId = msg.id;
     let r; try { r = JSON.parse(msg.message); } catch { return; }
     if (r && r.pc) receber(r, msg.time * 1000);
   };
@@ -354,6 +361,8 @@ async function enviar(texto) {
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
 }
 async function pingar() {
+  // Dois toques seguidos nao viram duas perguntas: cada uma gasta cota.
+  if (Date.now() - ultimoPing < ESPERA) return;
   ultimoPing = Date.now();
   $('refresh').classList.add('spin');
   try { await enviar('status'); $('conn').textContent = 'Conectado'; }
@@ -374,7 +383,7 @@ $('refresh').addEventListener('click', pingar);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && topico) conectar(); });
 
 /* ---------- Respostas dos PCs ---------- */
-const NOMES_EVENTO = { online: 'ligou', status: 'respondeu', desligando: 'vai desligar', reiniciando: 'vai reiniciar', cancelado: 'cancelou o desligamento', recusado: 'recusou o comando' };
+const NOMES_EVENTO = { online: 'ligou', status: 'respondeu', desligou: 'desligou', desligando: 'vai desligar', reiniciando: 'vai reiniciar', cancelado: 'cancelou o desligamento', recusado: 'recusou o comando' };
 function receber(r, quando) {
   const pc = pcs.get(r.pc) || { estado: 'desconhecido', visto: 0 };
   pcs.set(r.pc, pc);
@@ -383,6 +392,8 @@ function receber(r, quando) {
   pc.ligadoDesde = r.ligadoDesde * 1000;
   if (r.evento === 'desligando' || r.evento === 'reiniciando') { pc.estado = r.evento; pc.prazo = quando + (r.atraso || 60) * 1000; }
   else if (r.evento === 'cancelado' || r.evento === 'online') { pc.estado = 'online'; pc.prazo = 0; }
+  // O Windows avisou que ia desligar ou reiniciar (agente versao 3).
+  else if (r.evento === 'desligou') { pc.estado = /reinic/i.test(r.motivo || '') ? 'reiniciou' : 'desligou'; pc.prazo = 0; }
   else if (r.evento === 'status' && !(pc.prazo > Date.now())) { pc.estado = 'online'; }
   if (r.evento !== 'status') {
     atividade.unshift({ quando, texto: `${r.pc} ${NOMES_EVENTO[r.evento] || r.evento}${r.motivo ? ': ' + r.motivo : ''}`, ruim: r.evento === 'recusado' });
@@ -399,10 +410,30 @@ function situacao(pc) {
   if (pc.prazo > agora) return { dot: 'warn', texto: `<b>${pc.estado === 'reiniciando' ? 'Reinicia' : 'Desliga'} em <span class="mono">${Math.ceil((pc.prazo - agora) / 1000)}s</span></b>` };
   if (pc.prazo && pc.estado === 'desligando' && pc.visto < pc.prazo) return { dot: 'off', texto: 'Desligada' };
   if (pc.prazo && pc.estado === 'reiniciando' && pc.visto < pc.prazo) return { dot: 'warn', texto: 'Reiniciando…' };
-  if (agora - pc.visto < 75000 && pc.estado === 'online') return { dot: 'ok', texto: `Ligada · <span class="mono">${duracao(agora - pc.ligadoDesde)}</span>` };
+  if (pc.estado === 'desligou') return { dot: 'off', texto: `Desligada às <span class="mono">${hora(pc.visto)}</span>` };
+  if (pc.estado === 'reiniciou') return agora - pc.visto < 600000
+    ? { dot: 'warn', texto: 'Reiniciando…' }
+    : { dot: 'off', texto: `Não voltou do reinício (<span class="mono">${hora(pc.visto)}</span>)` };
+  const ligada = `Ligada · <span class="mono">${duracao(agora - pc.ligadoDesde)}</span>`;
+  // Agente versao 3: avisa ao ligar, ao desligar e diz "estou aqui" a cada 4 h,
+  // e nao mais a cada 3 min (era isso que esgotava a cota). Ligada = respondeu a
+  // ultima pergunta (com a hora em que foi conferido) ou deu sinal dentro das
+  // 4 horas (com ha quanto tempo).
+  if (ultimoPing && pc.visto >= ultimoPing - 5000 && pc.estado === 'online')
+    return { dot: 'ok', texto: `${ligada} · conferido ${hora(pc.visto)}` };
+  if (agora - pc.visto < 75000 && pc.estado === 'online') return { dot: 'ok', texto: ligada };
   if (agora - ultimoPing < ESPERA) return { dot: '', texto: 'Verificando…' };
-  return { dot: 'off', texto: 'Desligada' };
+  // Perguntaram e ela nao respondeu: vale mais que um sinal de meia hora atras.
+  if (ultimoPing) return { dot: 'off', texto: 'Sem resposta' };
+  // 4h15: o sinal de 4 h mais a folga de uma conexao que caiu e voltou.
+  const idade = agora - pc.visto;
+  if (pc.visto && idade < 255 * 60000 && pc.estado === 'online')
+    return { dot: 'ok', texto: `${ligada} · sinal há <span class="mono">${idade < 3600000 ? Math.max(1, Math.round(idade / 60000)) + ' min' : duracao(idade)}</span>` };
+  // Sem sinal ha mais de 4 h (queda de energia nao avisa): "desligada" seria
+  // chute. Diz quando ela falou.
+  return { dot: '', texto: pc.visto ? `Falou há <span class="mono">${duracao(agora - pc.visto)}</span>` : 'Toque em ↻ para conferir' };
 }
+function hora(ms) { return new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); }
 function duracao(ms) {
   const min = Math.max(0, Math.floor(ms / 60000)), d = Math.floor(min / 1440), h = Math.floor(min / 60) % 24, m = min % 60;
   return d ? `${d}d ${h}h` : `${h}h${String(m).padStart(2, '0')}m`;
@@ -415,17 +446,18 @@ function render() {
   const estados = lista.map(([, pc]) => situacao(pc));
   const ligadas = estados.filter(s => s.dot === 'ok' || s.dot === 'warn').length;
   $('count').textContent = lista.length ? `${ligadas}/${lista.length} ligadas` : '';
-  $('summary').textContent = !lista.length ? (Date.now() - ultimoPing < ESPERA ? 'Verificando máquinas…' : 'Nenhuma máquina respondeu ainda')
-    : ligadas ? `${ligadas} de ${lista.length} ${lista.length === 1 ? 'máquina ligada' : 'máquinas ligadas'}` : 'Todas desligadas';
+  $('summary').textContent = !lista.length ? (Date.now() - ultimoPing < ESPERA ? 'Verificando máquinas…' : (ultimoPing ? 'Nenhuma máquina respondeu' : 'Toque em ↻ para conferir'))
+    : ligadas ? `${ligadas} de ${lista.length} ${lista.length === 1 ? 'máquina ligada' : 'máquinas ligadas'}`
+    : (ultimoPing ? 'Nenhuma respondeu' : 'Toque em ↻ para conferir');
   trocar('pcs', lista.length ? lista.map(([nome], i) => {
     const s = estados[i];
     return `<button class="pc-row" data-pc="${esc(nome)}"><span class="dot ${s.dot}"></span>
       <span class="pc-name">${esc(nome)}</span><span class="pc-state">${s.texto}</span>
       <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>`;
-  }).join('') : `<div class="empty">${Date.now() - ultimoPing < ESPERA ? 'Procurando máquinas…' : 'Nenhuma máquina respondeu.<br>Confira se o instalador rodou nos PCs e se a senha está certa.'}</div>`);
+  }).join('') : `<div class="empty">${Date.now() - ultimoPing < ESPERA ? 'Procurando máquinas…' : (ultimoPing ? 'Nenhuma máquina respondeu.<br>Confira se o instalador rodou nos PCs e se a senha está certa.' : 'Nenhuma máquina falou nas últimas 12 horas.<br>Toque em ↻ para perguntar quem está ligado.')}</div>`);
   trocar('log', atividade.length ? atividade.map(a =>
     `<li><time class="mono">${new Date(a.quando).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</time><span class="${a.ruim ? 'bad' : ''}">${esc(a.texto)}</span></li>`).join('')
-    : '<li><time class="mono">—</time><span>Nada nos últimos 20 minutos.</span></li>');
+    : '<li><time class="mono">—</time><span>Nada nas últimas 12 horas.</span></li>');
   if (!$('menu').hidden && pcs.has(menuPc)) {
     const s = situacao(pcs.get(menuPc));
     $('menu-dot').className = 'dot ' + s.dot; $('menu-state').innerHTML = s.texto;

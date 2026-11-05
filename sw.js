@@ -1,6 +1,6 @@
 // Service worker minimo: permite instalar como app e abre a ultima versao salva
 // se a internet falhar. Sempre tenta a rede primeiro, para pegar atualizacoes.
-const CACHE = 'quadro-v1';
+const CACHE = 'quadro-v2';
 const ARQUIVOS = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon.png'];
 
 self.addEventListener('install', ev => {
